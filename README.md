@@ -34,7 +34,7 @@ It understands:
 3. Select the downloaded zip
 4. Enable **Weight Remapper** in the list
 
-Requires **Blender 4.5 or later**.
+Requires **Blender 4.5 or later** *(might work with earlier versions but haven't tested)*.
 
 ---
 
