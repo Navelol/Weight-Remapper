@@ -1,4 +1,4 @@
-
+<img width="1216" height="315" alt="Logo" src="https://github.com/user-attachments/assets/00a13e01-0b6c-4de6-8092-a793eaf79d7e" />
 
 A Blender addon that intelligently remaps vertex groups on a mesh to match the bone names of a different armature. Built for the VRChat avatar community but works with any humanoid rig.
 
@@ -22,6 +22,8 @@ It understands:
 - Adult anatomy bones (surfaced for manual review, never silently dropped)
 - Finger chains across all common indexing styles
 - Individual toe bones
+
+![blender_9FOhwF8EGN](https://github.com/user-attachments/assets/b425b0b2-c142-4d7d-8726-f4726a092093)
 
 ---
 
