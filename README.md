@@ -148,6 +148,7 @@ print(f"Done! {len(arm.data.bones)} bones written to 'full_hierarchy'")
 4. Hit **Run Script**
 5. Open the **Text Editor**, click the dropdown at the top, select **full_hierarchy**
 6. Copy the contents and paste it into a [new GitHub issue](../../issues/new) with the title `Rig hierarchy: [base name]`
+7. Make sure to assign it the `hierarchy` label before creating the post or it will get lost
 
 That's it. No Blender knowledge required beyond that, and no personal info is included — it's just bone names.
 
