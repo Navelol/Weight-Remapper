@@ -534,6 +534,27 @@ class REMAPPER_OT_Apply(bpy.types.Operator):
 
 
 # ---------------------------------------------------------------------------
+# Operator: Reset
+# ---------------------------------------------------------------------------
+
+class REMAPPER_OT_Reset(bpy.types.Operator):
+    """Clear all mappings and stats"""
+    bl_idname  = "remapper.reset"
+    bl_label   = "Reset"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        props = context.scene.bone_remapper
+        props.mappings.clear()
+        props.stats_matched   = 0
+        props.stats_review    = 0
+        props.stats_unmatched = 0
+        props.stats_skipped   = 0
+        props.stats_missing   = 0
+        return {'FINISHED'}
+
+
+# ---------------------------------------------------------------------------
 # Operator: Save / Load preset
 # ---------------------------------------------------------------------------
 
@@ -660,13 +681,14 @@ class REMAPPER_PT_Main(bpy.types.Panel):
         # ---- Rows ----
         self._draw_mappings(l, props)
 
-        # ---- Apply / Preset ----
+        # ---- Apply / Preset / Reset ----
         l.separator()
         row = l.row(align=True)
         row.scale_y = 1.2
         row.operator("remapper.apply", icon='CHECKMARK', text="Apply Remap")
         row.operator("remapper.save_preset", icon='FILE_TICK', text="")
         row.operator("remapper.load_preset", icon='FILE_FOLDER', text="")
+        row.operator("remapper.reset", icon='TRASH', text="")
 
     # ------------------------------------------------------------------
 
@@ -795,6 +817,7 @@ _classes = [
     REMAPPER_OT_PickSource,
     REMAPPER_OT_Analyse,
     REMAPPER_OT_Apply,
+    REMAPPER_OT_Reset,
     REMAPPER_OT_SavePreset,
     REMAPPER_OT_LoadPreset,
     REMAPPER_PT_Main,
