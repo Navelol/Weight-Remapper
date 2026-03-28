@@ -1,4 +1,4 @@
-
+<img width="1216" height="315" alt="Logo" src="https://github.com/user-attachments/assets/00a13e01-0b6c-4de6-8092-a793eaf79d7e" />
 
 A Blender addon that intelligently remaps vertex groups on a mesh to match the bone names of a different armature. Built for the VRChat avatar community but works with any humanoid rig.
 
@@ -23,6 +23,8 @@ It understands:
 - Finger chains across all common indexing styles
 - Individual toe bones
 
+![blender_9FOhwF8EGN](https://github.com/user-attachments/assets/b425b0b2-c142-4d7d-8726-f4726a092093)
+
 ---
 
 ## Installation
@@ -32,7 +34,7 @@ It understands:
 3. Select the downloaded zip
 4. Enable **Weight Remapper** in the list
 
-Requires **Blender 4.5 or later**.
+Requires **Blender 4.5 or later** *(might work with earlier versions but haven't tested)*.
 
 ---
 
@@ -122,33 +124,35 @@ The more naming conventions in the dictionary, the better the auto-matching gets
 3. Click **New**, paste in the contents of this script into the text editor:
 ```python
 import bpy
- 
+
 arm = bpy.context.active_object
- 
+
 if arm is None or arm.type != 'ARMATURE':
     raise Exception("Select an armature first!")
- 
+
 text = bpy.data.texts.new("full_hierarchy")
- 
+
 def print_bone(bone, depth=0):
     indent = "  " * depth
     text.write(f"{indent}{bone.name}\n")
     for child in bone.children:
         print_bone(child, depth + 1)
- 
+
 roots = [b for b in arm.data.bones if b.parent is None]
 for root in roots:
     print_bone(root)
- 
+
 print(f"Done! {len(arm.data.bones)} bones written to 'full_hierarchy'")
 ```
-
 
 4. Hit **Run Script**
 5. Open the **Text Editor**, click the dropdown at the top, select **full_hierarchy**
 6. Copy the contents and paste it into a [new GitHub issue](../../issues/new) with the title `Rig hierarchy: [base name]`
+7. Make sure to assign it the `hierarchy` label before creating the post or it will get lost
 
 That's it. No Blender knowledge required beyond that, and no personal info is included — it's just bone names.
+
+![eA3NrbjQ8l](https://github.com/user-attachments/assets/f4131e82-3f48-409e-8256-a546768a2b30)
 
 ---
 
