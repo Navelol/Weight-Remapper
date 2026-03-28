@@ -25,8 +25,6 @@ jobs:
           mkdir -p bone_remapper
           cp __init__.py remapper.py bone_remapper/
           zip -r bone_remapper.zip bone_remapper/
-          # Also ship the hierarchy export script as a standalone download
-          zip release_extras.zip export_hierarchy.py
 
       - name: Create release
         uses: softprops/action-gh-release@v2
