@@ -804,6 +804,142 @@ def _topology_score(bone_name, category, children_map, bone_info_map):
     return 0
 
 
+# =============================================================================
+# JIGGLE REGION KEYWORDS — shared by semantic fallback and post-match checker
+# =============================================================================
+
+_JIGGLE_REGIONS = {
+    "butt":   {"butt", "ass", "glute", "cheek", "rear", "rump", "buns",
+               "backside", "bottom", "behind", "booty", "buttock"},
+    "thigh":  {"thigh", "leg", "upperleg", "femur"},
+    "breast": {"breast", "boob", "bust", "pec", "peck", "tit",
+               "tiddy", "titty", "knocker", "boobie"},
+    "belly":  {"tummy", "belly", "stomach", "abdomen"},
+    "hip":    {"hip", "hipsdip", "hipdip", "lovehandle"},
+}
+
+
+def _jiggle_region(tokens):
+    """Return the region label for a set of jiggle bone tokens, or None."""
+    for region, kws in _JIGGLE_REGIONS.items():
+        if any(t in kws for t in tokens):
+            return region
+    return None
+
+
+# =============================================================================
+# SEMANTIC FALLBACK — merge proposals when no direct category match exists
+# =============================================================================
+#
+# When a source bone has a known category but no matching bone of that category
+# exists on the target, we look for a semantically related "host" category
+# (ordered by preference) that CAN absorb the weights via merge.
+#
+# Rules:
+#   - Twist → the body segment it deforms (elbow twist lives on the forearm, etc.)
+#   - Jiggle → the physics body it jiggles (butt jiggle → glute, thigh jiggle → thigh)
+#   - Helper → the segment it's closest to
+#   - Physics with no match → nearest body segment
+#   - Volume correctors → the segment they correct
+#
+# The host is NOT consumed from tgt_used — it keeps its primary mapping.
+# The fallback row is always bucket=review + suggest_merge=True.
+
+_SEMANTIC_FALLBACK = {
+    # Twist bones → the body segment they deform
+    "twist_upper_arm":  ["upper_arm"],
+    "twist_elbow":      ["forearm"],
+    "twist_forearm":    ["forearm", "hand"],
+    "twist_wrist":      ["hand", "forearm"],
+    "twist_hip":        ["glute", "thigh"],
+    "twist_knee":       ["shin"],
+    "twist_ankle":      ["foot"],
+    "twist_shin":       ["shin"],
+
+    # Jiggle bones → physics body they animate
+    "jiggle":           ["glute", "breast", "thigh", "belly", "upper_arm"],
+
+    # Helpers → nearest segment
+    "bicep_helper":     ["upper_arm"],
+
+    # Volume correctors → segment they correct
+    "volume_elbow":     ["forearm"],
+    "volume_knee":      ["shin"],
+    "volume_back":      ["spine", "chest"],
+
+    # Physics with no equivalent → nearest body anchor
+    "glute":            ["thigh"],           # target has thigh but no glute bone
+    "breast":           ["chest"],           # target has no breast bone
+    "nipple":           ["breast", "chest"],
+    "hip_dip":          ["thigh", "hips"],
+    "belly":            ["spine", "hips"],
+    "thigh_secondary":  ["thigh"],
+
+    # Adult — no fallback (must stay as review-no-target)
+}
+
+# Human-readable notes for each fallback category
+_SEMANTIC_FALLBACK_NOTES = {
+    "twist_upper_arm":  "no upper-arm twist on target — merge into upper arm?",
+    "twist_elbow":      "no elbow twist on target — merge into forearm?",
+    "twist_forearm":    "no forearm twist on target — merge into forearm?",
+    "twist_wrist":      "no wrist twist on target — merge into hand?",
+    "twist_hip":        "no hip/butt twist on target — merge into glute?",
+    "twist_knee":       "no knee twist on target — merge into shin?",
+    "twist_ankle":      "no ankle twist on target — merge into foot?",
+    "twist_shin":       "no shin twist on target — merge into shin?",
+    "jiggle":           "no matching jiggle on target — merge into body bone?",
+    "bicep_helper":     "no bicep helper on target — merge into upper arm?",
+    "volume_elbow":     "no elbow volume on target — merge into forearm?",
+    "volume_knee":      "no knee volume on target — merge into shin?",
+    "volume_back":      "no back volume on target — merge into spine?",
+    "glute":            "no glute on target — merge into thigh?",
+    "breast":           "no breast on target — merge into chest?",
+    "nipple":           "no nipple on target — merge into breast?",
+    "hip_dip":          "no hip-dip on target — merge into thigh?",
+    "belly":            "no belly on target — merge into spine?",
+    "thigh_secondary":  "no thigh secondary on target — merge into thigh?",
+}
+
+
+def _pick_semantic_fallback(source_category, side, tgt_by_cat, source_tokens=None):
+    """
+    Given a source category that found no direct match, walk the fallback
+    chain and return the first available target bone info dict, or None.
+    Tries same-side first, then None-side, then opposite side.
+    Does NOT consume the candidate from tgt_used.
+
+    source_tokens: optional token list used to refine jiggle fallback ordering
+    based on detected body region.
+    """
+    fallbacks = _SEMANTIC_FALLBACK.get(source_category, [])
+
+    # For jiggle bones, re-order the fallback list by detected region
+    if source_category == "jiggle" and source_tokens:
+        region_priority = {
+            "butt":   ["glute", "thigh"],
+            "thigh":  ["thigh", "glute"],
+            "breast": ["breast", "chest"],
+            "belly":  ["belly", "spine", "hips"],
+            "hip":    ["thigh", "hips"],
+        }
+        for region, kws in _JIGGLE_REGIONS.items():
+            if any(t in kws for t in source_tokens):
+                ordered = region_priority.get(region, [])
+                rest = [f for f in fallbacks if f not in ordered]
+                fallbacks = ordered + rest
+                break
+
+    other_side = ('R' if side == 'L' else 'L') if side else None
+
+    for fb_cat in fallbacks:
+        for try_side in (side, None, other_side):
+            candidates = tgt_by_cat.get((fb_cat, try_side), [])
+            if candidates:
+                return candidates[0]   # first candidate (insertion order)
+    return None
+
+
 def match(source_bones, target_bones, hierarchy=None):
     """
     Match source bone names to target bone names.
@@ -979,7 +1115,26 @@ def match(source_bones, target_bones, hierarchy=None):
             })
             continue
 
-        # --- level 4: no match — review with category info, no wrong guess ---
+        # --- level 4: semantic fallback — propose a merge into a related host bone ---
+        # When the source has no direct category match on the target, check if a
+        # semantically related "host" body bone exists.  If so, propose a merge
+        # into it (review + suggest_merge=True) rather than leaving it stranded.
+        # The host bone is NOT consumed from tgt_used so it can still be the
+        # primary target for the body bone that belongs there.
+        hit = _pick_semantic_fallback(cat, side, tgt_by_cat, source_tokens=s.get("tokens"))
+        if hit:
+            fb_note = _SEMANTIC_FALLBACK_NOTES.get(cat, f"{cat} → merge into {hit['category']}")
+            mappings.append({
+                "source":        s["raw"],
+                "target":        hit["raw"],
+                "bucket":        "review",
+                "confidence":    "low",
+                "notes":         fb_note,
+                "suggest_merge": True,
+            })
+            continue
+
+        # --- level 4b: truly no match ---
         mappings.append({
             "source": s["raw"], "target": None,
             "bucket": "review" if s["category"] else "unmatched",
@@ -1060,6 +1215,34 @@ def match(source_bones, target_bones, hierarchy=None):
             m["confidence"] = "medium"
             m["bucket"]     = "review"
             m["notes"]      = f"twist region mismatch — verify"
+
+    # ----------------------------------------------------------------
+    # Step 4b: jiggle region consistency check
+    # A jiggle bone's non-jiggle tokens signal its body region (butt, thigh,
+    # boob, belly, etc.).  If source and target jiggle bones have *different*
+    # recognised regions, the match is almost certainly wrong → flag review.
+    # ----------------------------------------------------------------
+
+    for m in mappings:
+        if m["bucket"] == "skip" or not m["target"]:
+            continue
+        src_norm = normalize(m["source"])
+        src_cls  = classify(src_norm)
+        if src_cls.get("category") != "jiggle":
+            continue
+
+        tgt_entry = bone_info_map.get(m["target"])
+        if not tgt_entry or tgt_entry.get("category") != "jiggle":
+            continue
+
+        src_region = _jiggle_region(src_norm["tokens"])
+        tgt_region = _jiggle_region(tgt_entry["tokens"])
+
+        # Both have recognised regions but they differ → wrong match
+        if src_region and tgt_region and src_region != tgt_region:
+            m["bucket"]     = "review"
+            m["confidence"] = "low"
+            m["notes"]      = f"jiggle region mismatch ({src_region} ≠ {tgt_region}) — verify"
 
     # ----------------------------------------------------------------
     # Step 5: orphan targets — target bones with a known category

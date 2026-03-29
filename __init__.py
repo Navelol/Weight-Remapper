@@ -99,9 +99,17 @@ class BoneRemapperProps(bpy.types.PropertyGroup):
         poll=lambda self, obj: obj.type == 'ARMATURE',
     )
     include_end_bones: bpy.props.BoolProperty(
-        name="Include _end bones",
+        name="End bones",
         default=False,
         description="Show terminal _end bones in the mapping list",
+    )
+    section_review_collapsed: bpy.props.BoolProperty(
+        name="Collapse Needs Review",
+        default=False,
+    )
+    section_matched_collapsed: bpy.props.BoolProperty(
+        name="Collapse Matched",
+        default=False,
     )
     filter_bucket: bpy.props.EnumProperty(
         name="Show",
@@ -303,6 +311,7 @@ class REMAPPER_OT_Analyse(bpy.types.Operator):
             row.bucket     = m["bucket"]
             row.confidence = m["confidence"]
             row.notes      = m.get("notes") or ""
+            row.merge_mode = bool(m.get("suggest_merge"))
 
             if   m["bucket"] == "matched":   matched   += 1
             elif m["bucket"] == "review":    review    += 1
@@ -362,7 +371,7 @@ class REMAPPER_OT_Analyse(bpy.types.Operator):
         for m in raw:
             src  = m['source']
             tgt  = m['target'] or "—"
-            bkt  = m['bucket']
+            bkt  = ("merge?" if m.get('suggest_merge') else m['bucket'])
             conf = m['confidence']
             note = m.get('notes') or ""
             lines.append(f"  {src:<35} {tgt:<35} {bkt:<12} {conf:<8} {note}")
@@ -409,9 +418,10 @@ class REMAPPER_OT_Analyse(bpy.types.Operator):
         if problem_rows:
             lines.append("── Needs Attention ──────────────────────────────────────────────────────")
             for m in problem_rows:
-                tgt  = m['target'] or "NO TARGET"
-                note = m.get('notes') or ""
-                lines.append(f"  [{m['bucket'].upper():<9}] {m['source']:<35} → {tgt:<35} {note}")
+                tgt    = m['target'] or "NO TARGET"
+                note   = m.get('notes') or ""
+                prefix = "[MERGE?  ]" if m.get('suggest_merge') else f"[{m['bucket'].upper():<9}]"
+                lines.append(f"  {prefix} {m['source']:<35} → {tgt:<35} {note}")
             lines.append("")
 
         lines.append("=" * 72)
@@ -652,12 +662,12 @@ class REMAPPER_PT_Main(bpy.types.Panel):
         col = box.column(align=True)
         col.prop(props, "source_mesh",     icon='MESH_DATA')
         col.prop(props, "target_armature", icon='ARMATURE_DATA')
-        col.prop(props, "include_end_bones", toggle=True)
 
-        # ---- Analyse ----
-        row = l.row()
+        # ---- Analyse + Reset (top) ----
+        row = l.row(align=True)
         row.scale_y = 1.3
         row.operator("remapper.analyse", icon='VIEWZOOM')
+        row.operator("remapper.reset", icon='TRASH', text="")
 
         total = props.stats_matched + props.stats_review + props.stats_unmatched
         if total == 0:
@@ -676,6 +686,12 @@ class REMAPPER_PT_Main(bpy.types.Panel):
 
         # ---- Filter tabs ----
         l.prop(props, "filter_bucket", expand=True)
+
+        # ---- End-bone toggle (small, right-aligned) ----
+        end_row = l.row()
+        end_row.alignment = 'RIGHT'
+        end_row.scale_y = 0.8
+        end_row.prop(props, "include_end_bones", toggle=True, icon='BONE_DATA', text="End bones")
         l.separator(factor=0.5)
 
         # ---- Rows ----
@@ -710,17 +726,34 @@ class REMAPPER_PT_Main(bpy.types.Panel):
         else:
             order = ["unmatched"]
 
+        # Collapsed-state prop names for buckets that support it
+        _COLLAPSE_PROP = {
+            "review":  "section_review_collapsed",
+            "matched": "section_matched_collapsed",
+        }
+
         for bucket_name in order:
             rows = buckets.get(bucket_name, [])
             if not rows:
                 continue
 
+            collapse_prop = _COLLAPSE_PROP.get(bucket_name)
+            is_collapsed  = collapse_prop and getattr(props, collapse_prop)
+
             box = layout.box()
-            hdr = box.row()
+            hdr = box.row(align=True)
+
+            if collapse_prop:
+                icon = 'TRIA_RIGHT' if is_collapsed else 'TRIA_DOWN'
+                hdr.prop(props, collapse_prop, text="", icon=icon, emboss=False)
+
             hdr.label(
                 text=f"{_BUCKET_LABEL.get(bucket_name, bucket_name)}  ({len(rows)})",
                 icon=_BUCKET_ICON.get(bucket_name, "DOT"),
             )
+
+            if is_collapsed:
+                continue
 
             for i, row in rows:
                 if bucket_name == "missing":
@@ -764,7 +797,7 @@ class REMAPPER_PT_Main(bpy.types.Panel):
 
         # Short status note
         note = _short_note(row.bucket, row.confidence, row.notes)
-        if row.merge_mode:
+        if row.merge_mode and row.overridden:
             note = "merge weights"
         if note:
             note_row = box.row()
